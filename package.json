@@ -1,0 +1,21 @@
+{
+  "name": "tsld",
+  "version": "0.0.1",
+  "author": "Ben Johnson <benbjohnson@yahoo.com>",
+  "description": "The Secret Lives of Data",
+  "license": "MIT",
+  "url": "https://github.com/benbjohnson/thesecretlivesofdata",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/benbjohnson/thesecretlivesofdata.git"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "mocha-phantomjs": "3.1.2",
+    "jslint": "0.1.9",
+    "uglify-js": ">= 1.3.4"
+  },
+  "scripts": {
+    "test": "make test"
+  }
+}
