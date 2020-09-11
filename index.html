@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Raft是一种共识算法，旨在使其易于理解。">
+    <link rel="icon" type="image/x-icon" href="logo/favicon.ico" >
+    <!-- The next line authorizes Diego to use the Google Search Console on this site. -->
+    <meta name="google-site-verification" content="aRKNQn2I0UXp0xfA1c6Hz0d_fiWqhhAGfher0aZRL3g" />
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" integrity="sha384-dkTxiR4Mv8i0ubTj0fsgTCmhYmOtrc0o6rdrEO6hDZs9cAifak0Y2VVL2cecWHLQ" crossorigin="anonymous" >
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js" integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script>
+    <script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js" integrity="sha384-Zzs5x1/YUvlxpCu06c197tRCubLCMA7pCoHbZeoZuz/oEgYD6NVmvLzDSKYBoc3J" crossorigin="anonymous"></script>
+
+    <script>
+// Render the implementations table.
+$(function() {
+  'use strict';
+  function display(impls) {
+    const tbody = $('#implementations tbody');
+    tbody.empty();
+    impls.forEach(function (impl) {
+      const row = $('<tr>');
+
+      let stars;
+      if (impl.stars === undefined || impl.stars < 5 ) {
+        stars = '';
+      } else {
+        stars = impl.stars.toLocaleString() + '★';
+      }
+      row.append($('<td>').text(stars));
+
+      row.append($('<td>')
+        .append($('<a>').attr('href', impl.repoURL).text(impl.name)));
+
+      const authors = $('<td>');
+      if (impl.authors !== undefined) {
+        impl.authors.forEach(function(author, i) {
+          let el;
+          if (author.github !== undefined) {
+            el = $('<a>').attr('href', 'https://github.com/' + author.github).text(author.name);
+          } else if (author.twitter !== undefined) {
+            el = $('<a>').attr('href', 'https://twitter.com/' + author.twitter).text(author.name);
+          } else {
+            el = $('<span>').text(author.name);
+          }
+          authors.append(el);
+          if (i < impl.authors.length - 1) {
+            authors.append(', ');
+          }
+        });
+      }
+      row.append(authors);
+
+      row.append($('<td>').text(impl.language));
+
+      row.append($('<td>').text(impl.license));
+
+      [
+        'basic',
+        'persistence',
+        'membershipChanges',
+        'logCompaction',
+      ].forEach(function(feature) {
+        let has;
+        if (impl.features !== undefined) {
+          has = impl.features[feature];
+        }
+        if (has === true) {
+          row.append($('<td>').text('Yes'));
+        } else if (has === false) {
+          row.append($('<td>').text('No'));
+        } else {
+          row.append($('<td>'));
+        }
+      })
+
+      tbody.append(row);
+    });
+  }
+
+  $.getJSON('implementations.json', function(impls) {
+    display(impls);
+
+    $.getScript('https://ongardie.net/static/raft/repos.jsonp',
+                    function() {
+      const repos = raft_repos();
+      impls.forEach(function(impl) {
+        const repo = repos[impl.repoURL];
+        if (repo === undefined) {
+          impl.rank = -1;
+        } else {
+          impl.rank = repo.rank;
+          impl.stars = repo.stars;
+          impl.updated = repo.updated;
+        }
+      });
+      impls.sort(function(a, b) { return b.rank - a.rank; })
+      display(impls);
+    });
+  });
+});
+    </script>
+
+    <style>
+blockquote p {
+  font-size: inherit;
+}
+a {
+  color: #000099;
+}
+    </style>
+
+    <title>Raft 共识算法</title>
+  </head>
+
+  <body>
+
+    <div class="container" style="margin-top: 50px">
+      <h1>
+        Raft 共识算法
+        <img src="logo/annie-solo.png" alt="" style="width: 200px; height: 190px; margin: -40px auto;" />
+      </h1>
+    </div>
+
+    <!-- MAIN -->
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4 col-md-push-8">
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <h1 class="panel-title">快速连接</h1>
+            </div>
+            <div class="panel-body">
+              <ul class="nav nav-pills nav-stacked">
+                <li><a href="raft.pdf">Raft 论文</a></li>
+                <li><a href="https://acehi.github.io/thesecretlivesofdata-cn/raft">Raft 中文入门原理模拟</a></li>
+                <li><a href="https://groups.google.com/forum/#!forum/raft-dev">raft-dev mailing list</a></li>
+                <li><a href="#implementations">Raft implementations</a></li>
+              </ul>
+            </div> <!-- end panel-body -->
+          </div> <!-- end panel -->
+        </div> <!-- end col-md-4  -->
+        <div class="col-md-8 col-md-pull-4">
+
+<a name="overview"></a>
+<h2>什么是 Raft?</h2>
+
+<p>
+Raft是一种共识算法，旨在使其易于理解。 它在容错和性能上与Paxos等效。 区别在于它被分解为相对独立的子问题，并且干净地解决了实际系统所需的所有主要部分。 我们希望Raft将使共识能够为更广泛的受众所接受，并且希望这个更广泛的受众能够开发出比当今更高质量的基于共识的系统。
+</p>
+
+
+<h2>等等&mdash;什么是 共识?</h2>
+
+<p>
+共识是容错分布式系统中的一个基本问题。 共识涉及多个服务器就价值达成一致。 一旦它们对价值做出决定，该决定就是最终决定。 当大多数服务器可用时，典型的共识算法会发挥作用。 例如，即使2台服务器出现故障，包含5台服务器的群集也可以继续运行。 如果更多服务器发生故障，它们将停止运行（但绝不会返回错误的结果）。</p>
+
+<p>
+共识通常出现在复制状态机的背景下，复制状态机是构建容错系统的通用方法。 每个服务器都有一个状态机和一个日志。 状态机是我们要使容错的组件，例如哈希表。 对于客户端来说，即使群集中的少数服务器出现故障，它们也将与单个可靠的状态机进行交互。 每个状态机都从其日志中获取输入命令。 在我们的哈希表示例中，日志将包含将x设置为3之类的命令。共识算法用于在服务器日志中约定命令。 共识算法必须确保，如果有任何状态机将x设置为3作为第n条命令，则其他任何状态机都不会应用不同的nth命令。 结果，每个状态机处理相同系列的命令，并因此产生相同系列的结果并到达相同系列的状态。
+</p>
+
+
+      </div> <!-- end col-md-8 div -->
+    </div> <!-- end row div -->
+    <div>
+
+<a name="raftscope"></a>
+<h2>Raft 演示</h2>
+
+<p>
+下面是浏览器中运行的Raft集群。 您可以与之互动以查看Raft的实际使用情况。 左侧显示5台服务器，右侧显示其日志。 我们希望尽快创建一个截屏视频，以解释发生了什么。 这种演示现在仍然很糙。建议先到<a href="https://acehi.github.io/thesecretlivesofdata-cn/raft">Raft 中文入门原理模拟</a>中熟悉下再来实验下面的模拟。
+</p>
+<p style="color: red">可以在下图每个节点上右键，对该节点进行停止、重启、请求等操作，单击每个节点可查看该节点当前状态。</p>
+
+<iframe src="raftscope/index.html" title="raft visualization" aria-hidden="true" style="border: 0; width: 800px; height: 580px; margin-bottom: 20px"></iframe>
+
+<p>
+<a href="https://acehi.github.io/thesecretlivesofdata-cn">The Secret Lives of Data-CN</a>
+是另一个演示的中文网站，它具有更多的指导性和较少的交互性，因此它可能是一个比较友好的入门演示网站。
+</p>
+
+<a name="pubs"></a>
+<h2>刊物</h2>
+
+<p>
+这是Raft的论文，里面有详细的描述：
+<a href="raft.pdf">寻找一种可以理解的共识算法（扩展版）</a>
+by <a href="https://twitter.com/ongardie">Diego Ongaro</a> and
+<a href="https://www.stanford.edu/~ouster/">John Ousterhout</a>.
+A slightly shorter version of this paper received a Best Paper Award at the
+<a href="https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro">2014 USENIX Annual Technical Conference</a>.
+</p>
+
+<p>
+Diego Ongaro's
+<a href="https://github.com/ongardie/dissertation#readme">Ph.D. dissertation</a>
+expands on the content of the paper in much more detail, and
+it includes a simpler cluster membership change algorithm.
+</p>
+
+<p>More Raft-related papers:</p>
+<ul>
+  <li>
+    <p>
+    Doug Woos,
+    James R. Wilcox,
+    Steve Anton,
+    Zachary Tatlock,
+    Michael D. Ernst, and
+    Thomas Anderson.
+    <br />
+    <a href="http://verdi.uwplse.org/">Planning for Change in a Formal Verification of the Raft Consensus Protocol</a>.
+    <br />
+    Certified Programs and Proofs (CPP), January 2016.
+    </p>
+  </li>
+  <li>
+    <p>
+    James R. Wilcox,
+    Doug Woos,
+    Pavel Panchekha,
+    Zachary Tatlock,
+    Xi Wang,
+    Michael D. Ernst, and
+    Thomas Anderson.
+    <br />
+    <a href="http://verdi.uwplse.org/">Verdi: A Framework for Implementing and Verifying Distributed Systems</a>.
+    <br />
+    Programming Language Design and Implementation (PLDI), June 2015.
+    </p>
+  </li>
+  <li>
+    <p>
+    Hugues Evrard and
+    Frédéric Lang.
+    <br />
+    <a href="https://hal.inria.fr/hal-01086522">Automatic Distributed Code Generation from Formal Models of Asynchronous Concurrent Processes</a>.
+    <br />
+    Parallel, Distributed, and Network-Based Processing (PDP), March 2015.
+    </p>
+  </li>
+  <li>
+    <p>
+    <a href="https://twitter.com/heidiann360">Heidi Howard</a>,
+    Malte Schwarzkopf,
+    Anil Madhavapeddy, and
+    Jon Crowcroft.
+    <br />
+    <a href="https://www.cl.cam.ac.uk/~ms705/pub/papers/2015-osr-raft.pdf">Raft Refloated: Do We Have Consensus?</a>.
+    <br />
+    SIGOPS Operating Systems Review, January 2015.
+    </p>
+  </li>
+  <li>
+    <p>
+    Heidi Howard.
+    <br />
+    <a href="https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-857.html">ARC: Analysis of Raft Consensus</a>.
+    <br />
+    University of Cambridge, Computer Laboratory, UCAM-CL-TR-857, July 2014.
+    </p>
+  </li>
+</ul>
+
+<a name="talks"></a>
+<h2>Talks</h2>
+
+<p>
+These talks serve as good introductions to Raft:
+</p>
+<!-- Please keep the following list in reverse chronological order. -->
+<ul class="list-group">
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at
+    <a href="https://cs.illinois.edu/news/distinguished-lecture-series-dr-john-ousterhout">CS@Illinois Distinguished Lecture Series</a>
+    by <a href="https://www.stanford.edu/~ouster/">John Ousterhout</a>, August 2016:
+    <img class="img-rounded pull-right" src="thumbnails/uiuc2016.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://youtu.be/vYp4LYbnnW8">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/uiuc2016.pdf">PDF</a>
+          with <a href="raftscope/index.html">RaftScope visualization</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft and its TLA+ spec as part of
+    <a href="https://github.com/tlaplus/DrTLAPlus">Dr. TLA+ Series</a>
+    by <a href="https://research.microsoft.com/en-us/um/people/jinl/">Jin Li</a>, July 2016:
+    <img class="img-rounded pull-right" src="thumbnails/drtlaplus2016.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://www.youtube.com/watch?v=6Kwx8zfGW0Y">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="https://www.slideshare.net/DrTlaplusSeries/dr-tla-series-raft-jin-li">SlideShare</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at
+    <a href="https://www.buildstuff.events/">Build Stuff 2015</a>
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, November 2015:
+    <img class="img-rounded pull-right" src="thumbnails/buildstufflt2015.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://www.infoq.com/presentations/raft-consensus-algorithm">InfoQ</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="https://ongardie.github.io/raft-talk-archive/2015/buildstuff/">HTML</a>
+          <a href="slides/buildstuff2015.pdf">PDF</a>
+          with <a href="https://ongardie.github.io/raft-talk-archive/2015/buildstuff/raftscope-replay/">RaftScope visualization</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talks on Rust, Raft, and distributed systems at
+    <a href="https://www.meetup.com/Rust-Bay-Area/events/219696985/">Rust Bay Area Meetup</a>
+    by
+    <a href="https://webhome.cs.uvic.ca/~ycoady/">Yvonne Coady</a>,
+    <a href="https://twitter.com/ongardie">Diego Ongaro</a>,
+    <a href="https://twitter.com/andrewhobden">Andrew Hobden</a>,
+    <a href="https://github.com/danburkert">Dan Burkert</a>, and
+    <a href="https://twitter.com/posix4e">Alex Newman</a>,
+    August 2015:
+    <img class="img-rounded pull-right" src="thumbnails/rust2015.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://air.mozilla.org/bay-area-rust-meetup-august-2015/">Air Mozilla</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          Diego: <a href="slides/rustdiego2015.pdf">PDF</a>
+          with <a href="raftscope-replay/index.html">RaftScope visualization</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at
+    <a href="https://coreos.com/fest/">CoreOS Fest 2015</a>
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, May 2015:
+    <img class="img-rounded pull-right" src="thumbnails/coreosfest2015.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://youtu.be/6bBggO6KN_k">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/coreosfest2015.pdf">PDF</a>
+          with <a href="raftscope-replay/index.html">RaftScope visualization</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at
+    <a href="https://www.meetup.com/Sourcegraph-Hacker-Meetup/events/221199291/">Sourcegraph meetup</a>
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, April 2015:
+    <img class="img-rounded pull-right" src="thumbnails/sourcegraph2015.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://youtu.be/2dfSOFqOhOU">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/sourcegraph2015.pdf">PDF</a>
+          with <a href="raftscope-replay/index.html">RaftScope visualization</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at LinkedIn
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, September 2014:
+    <img class="img-rounded pull-right" src="thumbnails/linkedin2014.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://youtu.be/LAqyTyNUYSY">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/linkedin2014.pdf">PDF</a>
+          <a href="slides/linkedin2014.pptx">PPTX</a>
+          with <a href="raftscope-replay/index.html">RaftScope visualization</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at
+    <a href="https://www.usievents.com/en">USI 2014</a>
+    and
+    <a href="http://devcycles.net/summer/sessions/index.php?session=3">/dev/summer 2014</a>
+    by <a href="https://twitter.com/abailly">Arnaud Bailly</a>, July 2014:
+    <img class="img-rounded pull-right" src="thumbnails/usi2014.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://www.youtube.com/watch?v=eRDq2Fr6grY">YouTube</a> (French)</td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td><a href="https://speakerdeck.com/abailly/the-raft-protocol-distributed-consensus-for-dummies">Speaker Deck</a> (English)</td>
+      </tr>
+    </table>
+  </li>
+
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at <a href="https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro">2014 USENIX Annual Technical Conference</a>
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, June 2014:
+    <img class="img-rounded pull-right" src="thumbnails/atc2014.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://www.usenix.org/conference/atc14/technical-sessions/presentation/ongaro">USENIX</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td><a href="raftscope-replay/index.html">RaftScope visualization</a></a>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at <a href="https://craft-conf.com/2014/#speakers/DiegoOngaro">CraftConf 2014</a>
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, April 2014:
+    <img class="img-rounded pull-right" src="thumbnails/craftconf2014.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://www.ustream.tv/recorded/46672856">Ustream</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/craftconf2014.pdf">PDF</a>
+          <a href="slides/craftconf2014.pptx">PPTX</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at <a href="https://rubyconf.org/program#patrick-van-stee">Rubyconf 2013</a>
+    by <a href="https://twitter.com/vanstee">Patrick Van Stee</a>, November 2013:
+    <img class="img-rounded pull-right" src="thumbnails/rubyconf2013.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://youtu.be/IsPxhZ2IsWw">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="https://speakerdeck.com/vanstee/raft-consensus-for-rubyists">Speaker Deck</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at <a href="http://ricon.io/west.html">RICON West 2013</a>
+    by <a href="https://twitter.com/ongardie">Diego Ongaro</a>, October 2013:
+    <img class="img-rounded pull-right" src="thumbnails/riconwest2013.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://youtu.be/06cTPhi-3_8">YouTube</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/riconwest2013.pdf">PDF</a>
+          <a href="slides/riconwest2013.pptx">PPTX</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft at <a href="https://thestrangeloop.com/sessions/raft-the-understandable-distributed-protocol">Strange Loop 2013</a>
+    by <a href="https://twitter.com/benbjohnson">Ben Johnson</a>, September 2013:
+    <img class="img-rounded pull-right" src="thumbnails/strangeloop2013.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://www.infoq.com/presentations/raft">InfoQ</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td><a href="https://speakerdeck.com/benbjohnson/raft-the-understandable-distributed-consensus-protocol">Speaker Deck</a></td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft and <a href="https://github.com/andrewjstone/rafter">Rafter</a>
+    at the <a href="https://www.meetup.com/Erlang-NYC/events/131394712/">Erlang NYC Meetup</a>
+    by <a href="https://twitter.com/tsantero">Tom Santero</a> and
+    <a href="https://twitter.com/andrew_j_stone">Andrew Stone</a>, August 2013:
+    <img class="img-rounded pull-right" src="thumbnails/erlangnyc2013.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video</td>
+        <td><a href="https://vimeo.com/71635670">Vimeo</a></td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td><a href="https://speakerdeck.com/tsantero/consensus-raft-and-rafter">Speaker Deck</a></td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Talk on Raft (venue unknown)
+    by <a href="https://twitter.com/vanstee">Patrick Van Stee</a>, July 2013:
+    <img class="img-rounded pull-right" src="thumbnails/vanstee2013.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Slides</td>
+        <td><a href="https://speakerdeck.com/vanstee/consensus-an-introduction-to-raft">Speaker Deck</a></td>
+      </tr>
+    </table>
+  </li>
+
+  <li class="list-group-item clearfix">
+    Lecture for the <a href="https://ongardie.net/static/raft/userstudy/">Raft User Study</a>
+    by <a href="https://www.stanford.edu/~ouster/">John Ousterhout</a>, March 2013:
+    <img class="img-thumbnail pull-right" src="thumbnails/userstudy2013.jpg" alt="preview of the video" />
+    <table class="table-condensed">
+      <tr>
+        <td>Video (screencast)</td>
+        <td>
+          <a href="https://youtu.be/YbZ3zDzDnrw">YouTube</a>
+          <a href="https://raftuserstudy.s3-us-west-1.amazonaws.com/raft.mp4">MP4</a>
+        </td>
+      </tr>
+      <tr>
+        <td>Slides</td>
+        <td>
+          <a href="slides/raftuserstudy2013.pdf">PDF</a>
+          <a href="slides/raftuserstudy2013.pptx">PPTX</a>
+        </td>
+      </tr>
+    </table>
+  </li>
+
+</ul>
+
+<a name="courses"></a>
+<h2>Courses teaching Raft</h2>
+
+<p>
+This is a list of courses that include lectures or programming assignments on Raft.
+This might be useful for other instructors and for online learners looking for materials.
+If you know of additional courses, please submit a
+<a href="https://github.com/raft/raft.github.io">pull request</a>
+or an issue to update it.
+</p>
+
+<!-- newest first -->
+<ul>
+
+  <li>
+    <a href="https://www.cse.iitd.ac.in/">Indian Institute of Technology Delhi</a>,
+    <a href="https://www.cse.iitd.ernet.in/~srsarangi/courses/2020/col_819_2020/index.html">COL 819: Distributed Systems</a>,
+    <a href="https://www.cse.iitd.ac.in/~srsarangi/">Smruti R. Sarangi</a>.
+    Includes lecture on Raft (<a href="https://youtu.be/oBlbpPDxs-M">video</a>)
+    (<a href="https://www.cse.iitd.ernet.in/~srsarangi/courses/2020/col_819_2020/docs/raft.pptx">PPTX</a>)
+    (Winter 2020, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cs.cmu.edu/">Carnegie Mellon University</a>,
+    <a href="https://www.synergylabs.org/courses/15-440/">CS 440: Distributed Systems</a>,
+    <a href="https://www.synergylabs.org/yuvraj/">Yuvraj Agarwal</a>,
+    <a href="https://www.cs.cmu.edu/~dga/">Dave Andersen</a>.
+    Includes Raft programming assignment in Go. (Fall 2019, ...)
+  </li>
+
+  <li>
+    <a href="https://khoury.northeastern.edu/">Northeastern University</a>,
+    <a href="https://cbw.sh/3700/">CS 3700: Networks and Distributed Systems</a>,
+    <a href="https://cbw.sh/">Christo Wilson</a>,
+    <a href="https://khoury.northeastern.edu/people/long-lu/">Long Lu</a>.
+    Includes an assignment to build a replicated key-value store based on the Raft protocol. (Fall 2018, ...)
+  </li>
+
+  <li>
+    <a href="https://www.rose-hulman.edu/">Rose-Hulman Institute of Technology</a>,
+    <a href="http://files.hewner.com/classes/csse403/">CS 403: Programming Language Paradigms</a>,
+    <a href="http://hewner.com">Buffalo Hewner</a>.
+    Includes Raft programming assignment in Erlang (<a href="http://files.hewner.com/classes/csse403/HomeworkCode/ErlangRaft/">assignments</a>).
+        (Winter 2017, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cs.princeton.edu/">Princeton University</a>,
+    <a href="https://www.cs.princeton.edu/courses/archive/fall16/cos418/">COS-418: Distributed Systems</a>,
+    <a href="https://www.cs.princeton.edu/~mfreed/">Mike Freedman</a> and
+    <a href="https://www.cs.princeton.edu/~kylej/">Kyle Jamieson</a>.
+    Includes <a href="https://www.cs.princeton.edu/courses/archive/fall16/cos418/docs/L8-consensus-2.pdf">lecture on Raft</a>
+    (<a href="https://www.cs.princeton.edu/courses/archive/fall16/cos418/docs/L8-consensus-2.pptx">PPTX</a>) and
+    <a href="https://www.cs.princeton.edu/courses/archive/fall16/cos418/assignments.html">programming assignments</a>
+    to build a Raft-based key-value store.
+    (Fall 2016, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cs.washington.edu/">University of Washington</a>,
+    <a href="https://courses.cs.washington.edu/courses/cse452/16wi/">CSE 452: Distributed Systems</a>,
+    <a href="https://www.cs.washington.edu/people/faculty/tom">Tom Anderson</a>.
+    Includes <a href="https://courses.cs.washington.edu/courses/cse452/16wi/calendar/calendar.html">lecture on Raft</a>,
+    though they call it Paxos.
+    (Winter 2016, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cs.colorado.edu/">University of Colorado, Boulder</a>,
+    <a href="https://www.cs.colorado.edu/~mishras/courses/csci5673/Fall15/">CSCI 5673: Distributed Systems</a>,
+    <a href="https://www.cs.colorado.edu/~mishras/">Shivakant Mishra</a>.
+    Includes assignment to download a Raft implementation and build a fault-tolerant data structure with it.
+    (Fall 2015, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cs.utah.edu/">University of Utah</a>,
+    <a href="https://www.cs.utah.edu/~stutsman/cs6963/">CS 6963: Distributed Systems</a>,
+    <a href="https://www.cs.utah.edu/~stutsman/">Ryan Stutsman</a>
+    (<a href="https://twitter.com/rstutsman">@rstutsman</a>).
+    Will include something about Raft (TBD).
+    (Fall 2015, ...)
+  </li>
+
+  <li>
+   <a href="http://info.sjsu.edu/web-dbgen/catalog/departments/CMPE.html">San Jose State University</a>,
+    <a href="http://info.sjsu.edu/web-dbgen/catalog/courses/CMPE275.html">CMPE 275 Enterprise Application Development</a>,
+    <a href="https://cmpe.sjsu.edu/profile/john-gash">John Gash</a>.
+    Includes project to make a <a href="https://github.com/deepmehtait/Distributed-file-system-server-with-RAFT">distributed filesystem</a> using Raft.
+    (Spring 2015, ...)
+  </li>
+
+  <li>
+    <a href="https://cs.brown.edu/">Brown</a>,
+    <a href="https://cs.brown.edu/courses/csci1380/">CS 138: Distributed Computer Systems</a>,
+    <a href="https://www.cs.brown.edu/~twd/">Tom Doeppner</a>,
+    <a href="https://www.cs.brown.edu/~rfonseca/">Rodrigo Fonseca</a>
+    (<a href="https://twitter.com/rodrigo_fonseca">@rodrigo_fonseca</a>).
+    Includes Raft programming assignment in Go.
+    (Spring 2015, ...)
+  </li>
+
+  <li>
+    <a href="https://www.csail.mit.edu/">MIT</a>,
+    <a href="http://nil.csail.mit.edu/6.824/2015/index.html">6.824: Distributed Systems</a>,
+    <a href="https://pdos.csail.mit.edu/~rtm/">Robert Morris</a>.
+    Includes lecture on Raft
+    (<a href="http://nil.csail.mit.edu/6.824/2015/notes/l-raft.txt">lecture notes</a>).
+    See <a href="https://twitter.com/Jonhoo/">Jon Gjengset</a>'s posts for
+    <a href="https://thesquareplanet.com/blog/instructors-guide-to-raft/">instructors</a> and
+    <a href="https://thesquareplanet.com/blog/students-guide-to-raft/">students</a>.
+    (Spring 2015, ...)
+  </li>
+
+  <li>
+    <a href="http://cs.usfca.edu/">University of San Francisco</a>,
+    <a href="http://cs636.cs.usfca.edu/home">CS 636: Graduate Operating Systems</a>,
+    <a href="http://benson.cs.usfca.edu/">Greg Benson</a>
+    (<a href="https://twitter.com/gregorydbenson">@gregorydbenson</a>).
+    Includes lecture on Raft.
+    (Spring 2015, ...)
+  </li>
+
+  <li>
+    <a href="https://www.eecs.harvard.edu/">Harvard</a>,
+    <a href="https://www.eecs.harvard.edu/cs261/">CS 261: Research Topics in Operating Systems</a>,
+    <a href="https://www.eecs.harvard.edu/margo">Margo Seltzer</a>.
+    Includes lecture on Raft
+    (<a href="https://www.eecs.harvard.edu/cs261/notes/ongara-2014.html">lecture notes</a>).
+    (Fall 2014, ...)
+  </li>
+
+  <li>
+    <a href="https://uh.edu/nsm/computer-science/">University of Houston</a>,
+    <a href="http://www2.cs.uh.edu/~paris/6360/resources.htm">COSC 6360: Operating Systems</a>,
+    <a href="http://www2.cs.uh.edu/~paris/">Jehan-François Pâris</a>
+    (<a href="https://twitter.com/jehanfrancois">@jehanfrancois</a>).
+    Includes lecture on Raft (<a href="http://www2.cs.uh.edu/~paris/6360/PowerPoint/Raft.ppt">PPT</a>).
+    (Fall 2014, ...)
+  </li>
+
+  <li>
+    <a href="https://cs.stanford.edu/">Stanford</a>,
+    <a href="https://www.scs.stanford.edu/14au-cs244b/">CS 244b: Distributed Systems</a>,
+    <a href="https://web.stanford.edu/~engler/">Dawson Engler</a>,
+    <a href="https://www.scs.stanford.edu/~dm/">David Mazières</a>
+    (<a href="https://twitter.com/dmazieres">@dmazieres</a>).
+    Included guest lecture on Raft by Diego Ongaro.
+    Several students chose to work on Raft-based
+    <a href="https://www.scs.stanford.edu/14au-cs244b/labs/presentations.html">final projects</a>.
+    (Fall 2014)
+  </li>
+
+  <li>
+    <a href="http://seecs.nust.edu.pk/">NUST-SEECS</a>,
+    CS 332: Distributed Computing,
+    Tahir Azim
+    (<a href="https://twitter.com/TahirAzim">@TahirAzim</a>).
+    Includes lecture on Raft based on user study materials
+    (<a href="https://twitter.com/TahirAzim/status/527363109678112768">tweet</a>).
+    (Fall 2014, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cs.duke.edu/">Duke</a>,
+    <a href="http://db.cs.duke.edu/courses/compsci512/spring15/">CPS 512: Distributed Systems</a>,
+    <a href="https://www.cs.duke.edu/~bmm/">Bruce Maggs</a>.
+    Includes guest lecture on Raft
+    (<a href="http://db.cs.duke.edu/courses/compsci512/spring15/lectures/raft-guest.pptx">PPTX</a>)
+    by <a href="https://www.cs.duke.edu/~lpcox/" >Landon Cox</a>
+    (<a href="https://twitter.com/lpcox">@lpcox</a>).
+    (Spring 2014, Spring 2015, ...)
+  </li>
+
+  <li>
+    <a href="https://www.cse.iitb.ac.in/">IIT Bombay</a>,
+    <a href="https://www.cse.iitb.ac.in/page134?course=CS+733">CS 733: Cloud Computing</a>,
+    <a href="https://github.com/sriram-srinivasan">Sriram Srinivasan</a>.
+    Includes Raft programming assignment in Go (<a href="https://github.com/dushyant89/CS-733">assignments</a>).
+    (Spring 2014, Spring 2015, ...)
+  </li>
+
+</ul>
+
+
+<h2>Where can I ask questions?</h2>
+
+<p>
+The best place to ask questions about Raft and its implementations is the
+<a href="https://groups.google.com/forum/#!forum/raft-dev">raft-dev Google group</a>.
+Some of the implementations also have their own mailing lists; check their READMEs.
+</p>
+
+<a name="implementations"></a>
+<h2>Where can I get Raft?</h2>
+
+<p>
+There are many implementations of Raft available in various stages of
+development. This table lists the implementations we know about with source
+code available. The most popular and/or recently updated implementations are
+towards the top. This information will inevitably get out of date; please submit a
+<a href="https://github.com/raft/raft.github.io">pull request</a>
+or an issue to update it.
+</p>
+
+<table id="implementations" class="table table-striped table-hover">
+<thead>
+<tr>
+  <th>Stars</th>
+  <th>Name</th>
+  <th>Primary Authors</th>
+  <th>Language</th>
+  <th>License</th>
+  <th>Leader Election + Log Replication?</th>
+  <th>Persistence?</th>
+  <th>Membership Changes?</th>
+  <th>Log Compaction?</th>
+</tr>
+</thead>
+<tbody>
+<!--
+Some JavaScript towards the top of the page will fill this in based on
+'implementations.json' and sort it according to GitHub stars and last repo
+update time.
+-->
+</tbody>
+</table>
+
+    </div>
+    </div> <!-- end MAIN -->
+
+    <!-- FOOTER  -->
+    <div class="container footer">
+      <hr />
+      <p>
+      Published with <a href="https://pages.github.com">GitHub Pages</a>.
+      <a href="https://github.com/acehi/TheRaftConsensusAlgorithm-cn">View on GitHub</a>.<br />
+      This work is licensed under a <a rel="license" href="https://creativecommons.org/licenses/by/3.0/deed.en_US">Creative Commons Attribution 3.0 Unported License</a>.
+      </p>
+    </div>
+
+  </body>
+</html>
