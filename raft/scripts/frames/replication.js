@@ -193,7 +193,7 @@ define([], function () {
             return (event.target.id === "B" && event.target.state() === "follower");
         })
         .after(1, function () {
-            subtitle('<h2>节点B将看到较高的选举期并退出。</h2>');
+            subtitle('<h2>节点B将看到较高的选举任期并退出。</h2>');
         })
         .after(1, function () {
             subtitle('<h2>节点A和B都将回滚其未提交的条目并匹配新领导者的日志。</h2>');
