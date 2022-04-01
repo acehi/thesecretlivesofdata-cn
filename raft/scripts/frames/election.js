@@ -72,7 +72,7 @@ define([], function () {
             return (event.target.state() === "candidate");
         })
         .after(1, function () {
-            subtitle('<h2>选举超时后，跟随者成为候选人并开始新一轮 <em> 选举期限 </em> ...</h2>');
+            subtitle('<h2>选举超时后，跟随者成为候选人并开始新一轮 <em> 选举任期 </em> ...</h2>');
         })
         .after(1, function () {
             subtitle('<h2>...为自己投票...</h2>');
@@ -81,10 +81,10 @@ define([], function () {
             subtitle('<h2>...并向其他节点发送 <em> 请求投票 </em> 消息。</h2>');
         })
         .after(model().defaultNetworkLatency, function () {
-            subtitle('<h2>如果接收的节点在这个选举期内还没有投票，那么它将投票给候选人...</h2>');
+            subtitle('<h2>如果接收的节点在这个任期内还没有投票，那么它将投票给候选人...</h2>');
         })
         .after(1, function () {
-            subtitle('<h2>...然后这个节点重置为选举超时</h2>');
+            subtitle('<h2>...然后这个节点重置它的选举超时</h2>');
         })
 
 
@@ -111,7 +111,7 @@ define([], function () {
             subtitle('', false);
         })
         .after(model().heartbeatTimeout * 2, function () {
-            subtitle('<h2>此选举期将持续到跟随者停止接收心跳并成为候选人为止。</h2>', false);
+            subtitle('<h2>此选举任期将持续到跟随者停止接收心跳并成为候选人为止。</h2>', false);
         })
         .after(100, wait).indefinite()
         .after(1, function () {
@@ -122,7 +122,7 @@ define([], function () {
         // Leader re-election
         //------------------------------
         .after(model().heartbeatTimeout * 2, function () {
-            subtitle('<h2>让我们停止Term1的领导节点，观察下次选举。</h2>', false);
+            subtitle('<h2>让我们停止领导节者，并观察重新选举。</h2>', false);
         })
         .after(100, wait).indefinite()
         .after(1, function () {
@@ -136,7 +136,7 @@ define([], function () {
             return (event.target.state() === "leader");
         })
         .after(1, function () {
-            subtitle('<h2>节点 ' + model().leader().id + ' 是现在选举期 (Term ' + model().leader().currentTerm() + ') 的领导者。</h2>', false);
+            subtitle('<h2>节点 ' + model().leader().id + ' 是当前任期 (Term ' + model().leader().currentTerm() + ') 的领导者。</h2>', false);
         })
         .after(1, wait).indefinite()
 
@@ -144,7 +144,7 @@ define([], function () {
         // Split Vote
         //------------------------------
         .after(1, function () {
-            subtitle('<h2>要获得多数票，可以确保每个选举期只能选出一位领导者。</h2>', false);
+            subtitle('<h2>要获得多数票，可以确保每个任期只能选出一位领导者。</h2>', false);
         })
         .after(1, wait).indefinite()
         .after(1, function () {
@@ -172,13 +172,13 @@ define([], function () {
             return (event.target.state() === "candidate");
         })
         .after(model().defaultNetworkLatency * 0.25, function () {
-            subtitle('<h2>两个节点都开始同一选举期的选举...</h2>');
+            subtitle('<h2>两个节点都开始同一任期的选举...</h2>');
         })
         .after(model().defaultNetworkLatency * 0.75, function () {
             subtitle('<h2>...每个都先到达一个跟随者节点。</h2>');
         })
         .after(model().defaultNetworkLatency, function () {
-            subtitle('<h2>现在，每位候选人都有2票，并且在这个选举期中将无法获得更多选票。</h2>');
+            subtitle('<h2>现在，每位候选人都有2票，并且在这个任期中将无法获得更多选票。</h2>');
         })
         .after(1, function () {
             subtitle('<h2>节点将等待新的选举，然后重试。</h2>', false);
@@ -188,7 +188,7 @@ define([], function () {
         })
         .after(1, function () {
             model().resetLatencies();
-            subtitle('<h2>节点 ' + model().leader().id + ' 在选举期 ' + model().leader().currentTerm() + ' 内获得多数票因此成为领导者.</h2>', false);
+            subtitle('<h2>节点 ' + model().leader().id + ' 在任期 ' + model().leader().currentTerm() + ' 内获得多数票因此成为领导者.</h2>', false);
         })
         .after(1, wait).indefinite()
 
